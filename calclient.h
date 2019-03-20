@@ -30,11 +30,8 @@
 char * generateRequest();
 
 /*
- * Sends a request to the server.
- * 
- * Parameter:   The request string to send to the server.
- * Return:  The reply from the server.
+ * Open a connection to the calendar server.
  */
-char * sendRequest(char *);
+void connectToCalServ(){
 
 #endif

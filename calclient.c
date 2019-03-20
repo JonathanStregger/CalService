@@ -21,7 +21,13 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include "calclient.h"
+
+#define SERVER_IP "10.0.2.10"
+#define SERVER_PORT "12000"
 
 int main(int argc, char **argv){
     //Display use instructions for the client.
@@ -35,19 +41,7 @@ int main(int argc, char **argv){
     "Press the enter key an additional time after the last line of data.\n"
     "Type \"exit\" to leave program.\n\n");
 
-    char * request = "";
-    while(strcmp(request, "exit") != 0){
-        request = generateRequest();
-        if(request != NULL && strcmp(request, "save-exit") == 0){
-            strcpy(request, "save\n\n");
-            sendRequest(request);
-            break;
-        }
-        sendRequest(request);
-    }
-    pritnf("Goodbye!\n");
-
-    return 1;
+    return connectToCalServ();
 }
 
 /*
@@ -157,11 +151,72 @@ char * generateRequest(){
 }
 
 /*
- * Sends a request to the server.
- * 
- * Parameter:   The request string to send to the server.
- * Return:  The reply from the server.
+ * Open a connection to the calendar server.
  */
-char * sendRequest(char *request){
-    return NULL;
+void connectToCalServ(){
+    //status: status of getaddrinfo
+    //sockfd: the socket file descriptor
+    //connfd: the connect fil descriptor
+    int status, sockfd, connfd;
+    struct addrinfo hints;
+    struct addrinfo *servinfo;  // will point to the results
+
+    memset(&hints, 0, sizeof hints); // ensure the struct is empty
+    hints.ai_family = AF_UNSPEC;     // works with either IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP stream socket
+    
+    struct sockaddr_in sa;
+    inet_pton(AF_INET, SERVER_IP, &(sa.sin_addr)); 
+    // point servinfo to a linked list of 1 or more struct addrinfos with
+    // the above specified specs and port 3721
+    status = getaddrinfo(sa.sin_addr, SERVER_PORT, &hints, &servinfo);
+    if (status != 0) {
+		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+		exit(1);
+	}
+
+    //open a socket with the connection info from getaddrinfo
+    sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if(sockfd == -1){
+        frprintf(stderr, "socket error: %s\n", strerror(errno));
+        exit(1);
+    }
+    
+    //We don't need to bind since the port number on the client side can 
+    //change dynamically without any issue for the server
+    //open a connection on the socket
+	if(connect(sockfd, res->ai_addr, res->ai_addrlen) == -1){
+		fprintf(stderr, "connect error: %s\n", strerror(errno));
+        close(sockfd);
+		exit(1);
+	}
+
+    //Send messages from the user to the server until user enters exit
+    char * request = "";
+    void * buffer = malloc(255);
+    int len = 0; //length of request
+    while(strcmp(request, "exit") != 0){
+        request = generateRequest();
+        if(request != NULL && strcmp(request, "save-exit") == 0){
+            strcpy(request, "save\n\n");
+            break;
+        }
+
+        //send request to server
+        len = strlen(request); //get length fo request
+        if(send(sockfd, request, len, 0) > 0){
+            //receive reply from server (max 255 length of 255)
+            recv(sockfd, buffer, 255, 0);
+            printf((char *)buffer); //print out reply from the servers
+        }
+        else
+            fprintf(stderr, "Send error. Please reenter request.\n");
+
+    }
+    close(sockfd); //close the socket
+    free(buffer);
+
+    printf("Goodbye!\n");
+
+    freeaddrinfo(servinfo); // free the linked-list
 }

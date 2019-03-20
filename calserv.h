@@ -39,11 +39,11 @@ typedef struct calList{
 
 /*
  * Opens a socket for connection.
- *
+ * 
  * Parameters:	The port to open a socket on
- * Return: 1 if successful. 0 if unsuccessful.
+ * 				The active calendar for the connection
  */
-void * openSocket(int portNumber);
+void openConnection(int, calendar);
 
 /*
  * Loads calendar data from calfile.  If the file cannot be found one is 
@@ -60,12 +60,13 @@ calendar* loadCalendarData(char * filename);
  * Parameters:	The string to pars the command from.
  *				The calendar to execute the command on.
  * Return:	0 : Bad parameter(s) encountered
- * 			1 : Add success
- * 			2 : Add failure, illegal data given
- * 			3 : Delete success
- * 			4 : Delete failure, appointment not found
- * 			5 : Save completed
- * 			6 : Unable to save
+ * 			1 : Bad command encountered
+ * 			2 : Add success
+ * 			3 : Add failure, illegal data given
+ * 			4 : Delete success
+ * 			5 : Delete failure, appointment not found
+ * 			6 : Save completed
+ * 			7 : Unable to save
  */
 int parseCommand(char *, calendar *);
 

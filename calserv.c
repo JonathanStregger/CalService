@@ -15,11 +15,16 @@
  *		Client data is stored in a binary file named calfile of calendar data
  *		Upon exit, the previous file will be renamed and a new file of
  *		calendar data will be written before deleting the old data.
+ * References:
+ * 		https://beej.us/guide/bgnet/html/single/bgnet.html
  * ------------------------------------------------------------------------ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #include "calserv.h"
 
 int main(int argc, char **argv){
@@ -41,24 +46,19 @@ int main(int argc, char **argv){
 	clientData = loadCalendarData("calfile");
 	
 	//Open a socket for connections
-	/*int errorCode = openSocket(portNumber);
+	openConnection(portNumber);
 	if(errorCode != 1){
 		printf("Fatal error #%d: Socket not be opened.", errorCode);
 		freeCalendar(clientData);
-		exit(EXIT_FAILURE); //No save is necissary
-	}*/
-	char input[255];
-	while(strcmp(input, "exit") != 0){
-		fgets(input, 255, stdin);
-
+		exit(1); //No save is necissary
 	}
 
 	//save, release memory, and exit
-	/*if(clientData->added > 0){
+	if(clientData->added > 0){
 		int i = saveCalendarData(clientData);
 		freeCalendar(clientData);
 		return i;
-	}*/
+	}
 
 	return 1;
 }
@@ -67,9 +67,104 @@ int main(int argc, char **argv){
  * Opens a socket for connection.
  *
  * Parameters:	The port to open a socket on
- * Return: 1 if successful. 0 if unsuccessful.
  */
-void * openSocket(int portNumber){ return NULL;}
+void openConnection(int port, calendar caldata){
+	//status: status of getaddrinfo
+	//sockfd: the socket file descriptor
+	//aptfd: the accept file descriptor
+	int status, sockfd, aptfd;
+	//hints is the specs for the address
+	//servinfo holds the results of getaddrinfo
+	struct addrinfo hints, *servinfo;
+	//hold the address of the client that connects to the server
+	struct sockaddr_storage client_addr;
+    socklen_t addr_size;
+
+	memset(&hints, 0, sizeof hints); // make sure the struct is empty
+	hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
+	hints.ai_socktype = SOCK_STREAM; // TCP stream sockets
+	hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+
+	// point servinfo to a linked list of 1 or more struct addrinfos with 
+	// the above specified specs and the port specified in the call
+	if ((status = getaddrinfo(NULL, port, &hints, &servinfo)) != 0) {
+		fprintf(stderr, "getaddrinfo error: %s\n", gai_strerror(status));
+		exit(1);
+	}
+
+	//open a socket with the connection info from getaddrinfo
+	sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if((sockfd == -1){
+        frprintf(stderr, "socket error: %s\n", strerror(errno));
+        exit(1);
+    }
+
+	//bind the socket to the program so that the client can find the server
+	if(bind(sockfd, res->ai_addr, res->ai_addrlen) == -1){
+		fprintf(stderr, "binding error on socket: %s\n", strerror(errno));
+		close(sockfd);
+		exit(1);
+	}
+
+	//listen on the connection on the socket
+	if(listen(sockfd, 1) == -1){
+		fprintf(stderr, "listen error: %s\n", strerror(errno));
+		close(sockfd);
+		exit(1);
+	}
+
+	//accecpt connections to the server
+	addr_size = sizeof client_addr;
+	if((aptfd = accept(sockfd, (struct sockaddr *)&client_addr, &addr_size)) == -1){
+		fprintf(stderr, "accept error: %s\n", strerror(errno));
+		close(sockfd);
+		exit(1);
+	}
+
+	//interact with client until disconnect signal
+	char request[255], reply[24]; //max receive from client is 255 bytes, biggest reply is 23 + null terminator
+    //receive request from client (max 255 length of 255)
+	while(recv(sockfd, (void *)request, 255, 0) != 0)){
+		//use the request to execute commands.  I
+		switch(parseCommand(request, caldata)){
+			case 1:
+				strcpy(reply, "404 command not found\n");
+				break;
+			case 2:
+				strcpy(reply, "200 success\n");
+				break;
+			case 3:
+				strcpy(reply, "202 failed to add\n");
+				break;
+			case 4:
+				strcpy(reply, "300 deleted\n");
+				break;
+			case 5:
+				strcpy(reply, "302 not found\n");
+				break;
+			case 6:
+				strcpy(reply, "100 file saved to file\n");
+				break;
+			case 7:
+				strcpy(reply, "102 unable to save\n");
+				break;
+			default:
+				fprintf(stderr, "fatal error in parse\n");
+				close(aptfd);
+				close(ockfd);
+				exit(1);
+		}
+
+		//send reply to client
+        len = strlen(reply); //get length fo reply
+        while(bytes_sent = send(sockfd, reply, len, 0) == 0 && len > 0);
+	}
+	
+	close(aptfd);
+	close(sockfd);
+
+	freeaddrinfo(servinfo); // free the linked-list
+}
 
 /*
  * Loads calendar data from calfile.  If the file cannot be found one is 
@@ -128,7 +223,8 @@ calendar* loadCalendarData(char * filename){
 				calData->added++;
 				if(calData->added == calData->max){
 					calData->max *= 2;	//double size
-					realloc(calData->appList, sizeof(appointment *) * calData->max);
+					realloc(calData->appList,
+						sizeof(appointment *) * calData->max);
 				}
 			}
 		}
@@ -188,7 +284,7 @@ int parseCommand(char *cmdLine, calendar *cal){
 	else if(strcmp(cmd, "save")){
 		return saveCalendarData(cal);
 	}
-	return 3; //command not recognized
+	return 1; //command not recognized
 }
 
 /*
@@ -332,12 +428,6 @@ int equalsApp(appointment *app1, appointment *app2){
 	for(i = 0; i < 12; i++)
 		if((app1->time + i) != (app2->time + i))
 			return 0;
-	//check note
-	/*char *p = app1->note;
-	char *q = app2->note;
-	for(;*p != 0 && *q != 0; p++, q++)
-		if(*p != *q)
-			return 0;*/
 	return 1;
 }
 
@@ -351,8 +441,6 @@ int equalsApp(appointment *app1, appointment *app2){
 int testAppointment(char *app){
 	if(app == NULL)
 		return 0;
-	//					000000000011111111112
-	//					012345678901234567890
 	//check for type in yy-mm-dd;hh:mm-hh-mm;note
 	if(isNum(app[0]) == 1 && isNum(app[1]) == 1 && 		//yy
 		isNum(app[3]) == 1 && isNum(app[4]) == 1 && 	//mm
@@ -613,21 +701,21 @@ void getOptions(int argc, char **argv, int *portNumber, char *filename){
 			}
 			else if(prevOpt == 'd'){
 				printf("\n\tCalendar Server 4000 Extreme!!!\n\n"
-"Manages a calender server of appointments for a client.\n"
-"Clients may add, modify, or delete appointments. Success or failure of\n"
-"client actions on server data will be reported to the client upon\n"
-"completion or failure.\n"
-"Port and filename for calendar may be specified with the options:\n"
-"[-p portnumber] [-f filename]\n"
-"Default port is 12000. Default file name is calfile.\n"
-"Simple help is provied with the -h option\n"
-"Format of commands received from client are:\n"
-"Add Command\tDelete Command\tSave Command\n"
-"add\t\tdelete\t\tsave\n"
-"date\t\tdate\n"
-"time\t\ttime\n"
-"note\n\n"
-"Press any key to continue...");
+	"Manages a calender server of appointments for a client.\n"
+	"Clients may add, modify, or delete appointments. Success or failure of\n"
+	"client actions on server data will be reported to the client upon\n"
+	"completion or failure.\n"
+	"Port and filename for calendar may be specified with the options:\n"
+	"[-p portnumber] [-f filename]\n"
+	"Default port is 12000. Default file name is calfile.\n"
+	"Simple help is provied with the -h option\n"
+	"Format of commands received from client are:\n"
+	"Add Command\tDelete Command\tSave Command\n"
+	"add\t\tdelete\t\tsave\n"
+	"date\t\tdate\n"
+	"time\t\ttime\n"
+	"note\n\n"
+	"Press any key to continue...");
 				getchar();
 				printf("\n\n");
 				prevOpt = 0;
