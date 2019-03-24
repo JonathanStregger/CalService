@@ -43,7 +43,7 @@ typedef struct calList{
  * Parameters:	The port to open a socket on
  * 				The active calendar for the connection
  */
-void openConnection(int, calendar);
+void openConnection(char*, calendar*);
 
 /*
  * Loads calendar data from calfile.  If the file cannot be found one is 
@@ -52,7 +52,7 @@ void openConnection(int, calendar);
  * Parameters:	The filename to load from.
  * Return: A calendar with appointments from calfile.
  */
-calendar* loadCalendarData(char * filename);
+calendar* loadCalendarData(char *);
 
 /*
  * Parses a command for the server to execute.
@@ -164,5 +164,10 @@ void getOptions(int argc, char **argv, int *, char *);
  * Return:	A string indicating the state of the server after the last request
  */
 char * generateReply(int);
+
+/*
+ * Converts a client message to server format: '\n' between dates/times become ';'
+ */
+char * convertToServer(char *);
 
 #endif

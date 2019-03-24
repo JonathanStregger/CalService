@@ -32,6 +32,6 @@ char * generateRequest();
 /*
  * Open a connection to the calendar server.
  */
-void connectToCalServ(){
+void connectToCalServ();
 
 #endif

@@ -8,12 +8,12 @@
 # --------------------------------------------------------------------
 
 CC = gcc
-CFLAGS = -Wall -std=c99
+CFLAGS = -Wall
 
 all: calserv calclient
 
 calserv: calserv.c calserv.h
-	$(CC) $(CLFAGS) -o calserv calserv.c calserv.h -lm
+	$(CC) $(CFLAGS) -o calserv calserv.c calserv.h -lm
 
 calclient: calclient.c calclient.h
-	$(CC) $(CLFAGS) -o calclient calclient.c calclient.h -lm 
+	$(CC) $(CFLAGS) -o calclient calclient.c calclient.h -lm 

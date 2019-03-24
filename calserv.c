@@ -25,6 +25,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <unistd.h>
 #include "calserv.h"
 
 int main(int argc, char **argv){
@@ -36,28 +37,35 @@ int main(int argc, char **argv){
 	//handle command line arguements
 	getOptions(argc, argv, &portNumber, filename);
 	
-	//if no port chosen, default to port 12000
-	if(portNumber == 0)
+	//if no port chosen or port out of range, default to port 12000
+	if(portNumber < 1 || portNumber > 65535)
 		portNumber = 12000;
 	//if no filename option was used to set th filename to the default calfile
 	if(filename[0] == 0)
 		strcpy(filename, "calfile");
+	
 	//Load calendar data from file
 	clientData = loadCalendarData("calfile");
 	
-	//Open a socket for connections
-	openConnection(portNumber);
-	if(errorCode != 1){
-		printf("Fatal error #%d: Socket not be opened.", errorCode);
-		freeCalendar(clientData);
-		exit(1); //No save is necissary
-	}
+	//convert the portnumber to a string
+	char port[6];
+	snprintf(port, sizeof(port), "%d",portNumber);
+
+	//Open a connection for clients
+	//openConnection(port, clientData);
+
+	//some tests
+	char add[] = "add\n12-13-12\n12:12-12:12\nsome notes\n\n";
+	char del[] = "delete\n12-12-12\n12:12-12:12\n\n";
+	char save[] = "save\ncat \n";
+	printf("%s\n", generateReply(parseCommand(add, clientData)));
+	printf("%s\n", generateReply(parseCommand(del, clientData)));
+	printf("%s\n", generateReply(parseCommand(save, clientData)));
 
 	//save, release memory, and exit
 	if(clientData->added > 0){
-		int i = saveCalendarData(clientData);
+		//int i = saveCalendarData(clientData);
 		freeCalendar(clientData);
-		return i;
 	}
 
 	return 1;
@@ -68,14 +76,15 @@ int main(int argc, char **argv){
  *
  * Parameters:	The port to open a socket on
  */
-void openConnection(int port, calendar caldata){
+void openConnection(char *port, calendar *caldata){
 	//status: status of getaddrinfo
 	//sockfd: the socket file descriptor
 	//aptfd: the accept file descriptor
 	int status, sockfd, aptfd;
 	//hints is the specs for the address
 	//servinfo holds the results of getaddrinfo
-	struct addrinfo hints, *servinfo;
+	struct addrinfo hints;
+	struct addrinfo *servinfo;
 	//hold the address of the client that connects to the server
 	struct sockaddr_storage client_addr;
     socklen_t addr_size;
@@ -93,22 +102,22 @@ void openConnection(int port, calendar caldata){
 	}
 
 	//open a socket with the connection info from getaddrinfo
-	sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    if((sockfd == -1){
-        frprintf(stderr, "socket error: %s\n", strerror(errno));
+	sockfd = socket(servinfo->ai_family, servinfo->ai_socktype, servinfo->ai_protocol);
+    if(sockfd == -1){
+        fprintf(stderr, "socket error occured.\n");
         exit(1);
     }
 
 	//bind the socket to the program so that the client can find the server
-	if(bind(sockfd, res->ai_addr, res->ai_addrlen) == -1){
-		fprintf(stderr, "binding error on socket: %s\n", strerror(errno));
+	if(bind(sockfd, servinfo->ai_addr, servinfo->ai_addrlen) == -1){
+		fprintf(stderr, "binding error on socket.\n");
 		close(sockfd);
 		exit(1);
 	}
 
 	//listen on the connection on the socket
 	if(listen(sockfd, 1) == -1){
-		fprintf(stderr, "listen error: %s\n", strerror(errno));
+		fprintf(stderr, "listen error occured.\n");
 		close(sockfd);
 		exit(1);
 	}
@@ -116,16 +125,17 @@ void openConnection(int port, calendar caldata){
 	//accecpt connections to the server
 	addr_size = sizeof client_addr;
 	if((aptfd = accept(sockfd, (struct sockaddr *)&client_addr, &addr_size)) == -1){
-		fprintf(stderr, "accept error: %s\n", strerror(errno));
+		fprintf(stderr, "accept error occured.\n");
 		close(sockfd);
 		exit(1);
 	}
 
 	//interact with client until disconnect signal
-	char request[255], reply[24]; //max receive from client is 255 bytes, biggest reply is 23 + null terminator
+	//max receive from client is 255 bytes, biggest reply is 23 + null terminator	
+	char request[255], reply[24]; 
     //receive request from client (max 255 length of 255)
-	while(recv(sockfd, (void *)request, 255, 0) != 0)){
-		//use the request to execute commands.  I
+	while(recv(sockfd, (void *)request, 255, 0) != 0){
+		//use the request to execute commands.
 		switch(parseCommand(request, caldata)){
 			case 1:
 				strcpy(reply, "404 command not found\n");
@@ -151,13 +161,13 @@ void openConnection(int port, calendar caldata){
 			default:
 				fprintf(stderr, "fatal error in parse\n");
 				close(aptfd);
-				close(ockfd);
+				close(sockfd);
 				exit(1);
 		}
 
 		//send reply to client
-        len = strlen(reply); //get length fo reply
-        while(bytes_sent = send(sockfd, reply, len, 0) == 0 && len > 0);
+        int len = strlen(reply); //get length fo reply
+        while(len > 0 && send(sockfd, reply, len, 0) == 0);
 	}
 	
 	close(aptfd);
@@ -189,8 +199,9 @@ calendar* loadCalendarData(char * filename){
 		printf("malloc failure in allocating appointment list.\n");
 		exit(EXIT_FAILURE);
 	}
-	for(int i = 0; i < 10; i++)
-		calData->appList[i] == NULL;
+	int i = 0;
+	for(; i < 11; i++)
+		calData->appList[i] = NULL;
 
 	FILE *calFile = fopen(calData->filename, "r");
 	//If no file is found, then there has not been 
@@ -203,7 +214,6 @@ calendar* loadCalendarData(char * filename){
 	char line[255];
 	while(getChar != -1){
 		getChar = fgetc(calFile);
-		int i;
 		for(i = 0; getChar != -1 && getChar != '\n'; i++){
 			//only add first 255 characters
 			if(i < 255)
@@ -217,22 +227,16 @@ calendar* loadCalendarData(char * filename){
 		if(i > 20){
 			printf("\nLoading apppintment\n");
 			//Try to add appointment to calendar
-			if(addAppointment(makeAppointment(line), calData) != 1)
+			if(addAppointment(makeAppointment(line), calData) == 2)
+				printf("Appointment loaded.\n");
+			else
 				printf("Appointment not loaded.\n");
-			else{
-				calData->added++;
-				if(calData->added == calData->max){
-					calData->max *= 2;	//double size
-					realloc(calData->appList,
-						sizeof(appointment *) * calData->max);
-				}
-			}
 		}
 	}
 	if(calData->added > 0)
 		printf("\nCalendar loaded into memory.\n\n");
 	else 
-		printf("\nNo appointments loaded.\n\n");
+		printf("No appointments loaded.\n\n");
 	fclose(calFile);
 	return calData;
 }
@@ -257,31 +261,34 @@ int parseCommand(char *cmdLine, calendar *cal){
 
 	char cmd[7]; //max length command is delete
 	int i = 0;
-	for(; i < 7; i++){
-		if(cmdLine[i] != 0 && cmdLine[i] != ' ')
+	for(; i < 7 && cmdLine[i] != '\n'; i++){
+		if(cmdLine[i] != 0)
 			cmd[i] = cmdLine[i];
 		else if(cmdLine[i] == 0)
-			return 4; //command had no data
-		//if ' ' reached, full command received
+			return 1; //command had no data
+		//if '\n' reached, full command received
 		else
 			break;
 	}
 	cmd[i] = 0; //null terminate
-	char *app = cmdLine + i; //get the app section after the command
-
+	char *app = cmdLine + i + 1; //get the app section after the command
+	//printf("::%s::%s::\n",cmd, app);
 	//for add command, attempt to add appointment
 	if(strcmp(cmd, "add") == 0){
-		return addAppointment(makeAppointment(app), cal);
+		appointment *p = makeAppointment(convertToServer(app));
+		if(p != NULL)
+			return addAppointment(p, cal);
+		return 3;
 	}
 	//for delete command, delete the appointment
-	else if(strcmp(cmd, "delete")){
+	else if(strcmp(cmd, "delete") == 0){
 		//make an appointment to compare with calendar records
-		appointment *newApp = makeAppointment(app); 
+		appointment *newApp = makeAppointment(convertToServer(app)); 
 		int result = removeAppointment(newApp, cal);
-		free(newApp); //free the copy calendar
+		free(newApp); //free the copy appointment
 		return result; //return result of deletion attempt
 	}
-	else if(strcmp(cmd, "save")){
+	else if(strcmp(cmd, "save") == 0){
 		return saveCalendarData(cal);
 	}
 	return 1; //command not recognized
@@ -306,6 +313,10 @@ appointment * makeAppointment(char *app){
 
 	//find the first open spot in the appList
 	appointment *addApp = malloc(sizeof(appointment));
+	if(addApp == NULL){
+		printf("malloc error to add apppointment.\n");
+		exit(1);
+	}
 	char *p;
 	//Get the date from the line of format yy-mm-dd
 	addApp->date = (char *) malloc(sizeof(char)*9);
@@ -335,7 +346,8 @@ appointment * makeAppointment(char *app){
 
 	//Get the note from the line of unknown format and length
 	int i = 1; //find length of the note
-	for(char *q = app; *q != 0; q++, i++){}
+	char *q;	
+	for(q = app; *q != 0; q++, i++){}
 	if(i == 0){
 		addApp->note = (char *) malloc(sizeof(char)*2);
 		if(addApp->note == NULL){
@@ -365,21 +377,28 @@ appointment * makeAppointment(char *app){
  *
  * Parameters:	The appointment to add to the calendar.
  *				The calendar to add the appointment to.
- * Returns 1 if added to calednar, 2 if improper formatting found.
+ * Returns 2 if added to calednar, 3 if add not possible.
  */
 int addAppointment(appointment *addApp, calendar* cal){
 	if(addApp == NULL || cal == NULL)
 		return 0;
-	int added = 2;
 	//Put the appointment in the first empty slot in cal->appList
-	for(int i  = 0; i < cal->max; i++)
-		if(cal->appList[i] == NULL){
-			cal->appList[i] = addApp;
-			added = 1;
+	cal->appList[cal->added] = addApp;
+	cal->added++;
+	//if at max size, double size of appointment calendar
+	if(cal->added == cal->max){
+		cal->max *= 2;	//double size
+		void *p = realloc(cal->appList, 
+			sizeof(appointment *) * cal->max);
+		if(cal->appList == NULL){
+			printf("Out of memory. No more adds possible.\n");
+			cal->max = cal->max / 2; //restore max size
+			return 3;
 		}
-	if(added == 1)
-		printf("Add complete.\n");
-	return added;
+		cal->appList = (appointment **)p;
+	}
+	printf("Add complete.\n");
+	return 2;
 }
 
 /*
@@ -395,10 +414,12 @@ int removeAppointment(appointment *app, calendar *cal){
 
 	//check through list of appointments for appointment to be removed
 	//and remove it when found.
-	for(int i = 0; i < cal->max; i++){
+	int i = 0;
+	for(; i < cal->added; i++){
 		if(equalsApp(app, cal->appList[i]) == 1){
 			free(cal->appList[i]);
 			cal->appList[i] = NULL;
+			cal->added--;
 			printf("Appointment removed.\n");
 			return 4;
 		}
@@ -422,11 +443,11 @@ int equalsApp(appointment *app1, appointment *app2){
 	int i = 0;
 	//check date
 	for(; i < 8; i++)
-		if((app1->date + i) != (app2->date + i))
+		if(*(app1->date + i) != *(app2->date + i))
 			return 0;
 	//check time
 	for(i = 0; i < 12; i++)
-		if((app1->time + i) != (app2->time + i))
+		if(*(app1->time + i) != *(app2->time + i))
 			return 0;
 	return 1;
 }
@@ -498,6 +519,7 @@ int testAppointment(char *app){
 				break;
 			//If not above, then month out of range.
 			default:
+				printf("Illegal month value. ");
 				return 0;
 		}
 		//check for hour between 1 and 24
@@ -562,7 +584,8 @@ void freeCalendar(calendar *cal){
 		return;
 
 	//free all memory for each appointment's strings and the appointment
-	for(int i = 0; i < cal->max && cal->appList[i] != NULL; i++){
+	int i = 0;
+	for(; i < cal->max && cal->appList[i] != NULL; i++){
 		free(cal->appList[i]->date);
 		free(cal->appList[i]->time);
 		free(cal->appList[i]->note);
@@ -594,7 +617,8 @@ int saveCalendarData(calendar *calData){
 		return 7;
 	}
 	//Write all appointments to the file.
-	for(int i = 0; i < calData->max && calData->appList[i] != NULL; i++){
+	int i = 0;
+	for(; i < calData->added; i++){
 		char *line = appointmentToString(calData->appList[i]);
 		fputs(line, newCal);
 		fflush(newCal);
@@ -619,24 +643,25 @@ char * appointmentToString(appointment *app){
 
 	//Get the length of the appointment
 	int appLength = 22; //base length with not note is 21 + \n
-	for(char *p = app->note; *p != 0; p++, appLength++){}
+	char *p;
+	for(p = app->note; *p != 0; p++, appLength++){}
 	char *line = (char *) malloc(sizeof(char)*appLength);
 	if(line == NULL){
 		printf("malloc failure during write to file.\n");
 	}
 	char *add = line;
 	//add the date to the line
-	for(char *p = app->date; *p != 0; p++, add++)
+	for(p = app->date; *p != 0; p++, add++)
 		*add = *p;
 	*add = 59; //add ';'
 	add++;
 	//add the time to the line
-	for(char *p = app->time; *p != 0; p++, add++)
+	for(p = app->time; *p != 0; p++, add++)
 		*add = *p;
 	*add = 59; //add ';'
 	add++;
 	//add the note to the line
-	for(char *p = app->note; *p != 0; p++, add++)
+	for(p = app->note; *p != 0; p++, add++)
 		*add = *p;
 	*add = 10; //add '\n'
 	add++;
@@ -654,7 +679,8 @@ char * appointmentToString(appointment *app){
  */
 void getOptions(int argc, char **argv, int *portNumber, char *filename){
 	char prevOpt = 0;
-	for(int i = 1; i < argc; i++){
+	int i = 1;
+	for(; i < argc; i++){
 		//handle option if one was encountered
 		if(prevOpt != 0){
 			switch(prevOpt){
@@ -734,19 +760,35 @@ void getOptions(int argc, char **argv, int *portNumber, char *filename){
  */
 char * generateReply(int requestCode){
 	switch(requestCode){
-		case 1:
-			return "200 success";
 		case 2:
-			return "202 failed to add";
+			return "200 success\n";
 		case 3:
-			return "300 deleted";
+			return "202 failed to add\n";
 		case 4:
-			return "302 not found";
+			return "300 deleted\n";
 		case 5:
-			return "100 filesaved to file";
+			return "302 not found\n";
 		case 6:
-			return "102 unable to save";
+			return "100 filesaved to file\n";
+		case 7:
+			return "102 unable to save\n";
 		default:
-			return "404 command not found";
+			return "404 command not found\n";
 	}
+}
+
+/*
+ * Converts a client message to server format: '\n' between dates/times become ';'.
+ */
+char * convertToServer(char *app){
+	int i = 0;
+	for(; i < 255 && app[i] != 0; i++){
+		if(app[i] == '\n')
+			app[i] = ';';
+	}
+	//remove trailing ';'
+	for(i--; i > 0 && app[i] == ';' && (app[i-1] < 48 || app[i-1] > 57); i--){
+		app[i] = 0;
+	}
+	return app;
 }
