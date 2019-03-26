@@ -52,21 +52,18 @@ int main(int argc, char **argv){
 	snprintf(port, sizeof(port), "%d",portNumber);
 
 	//Open a connection for clients
-	//openConnection(port, clientData);
+	openConnection(port, clientData);
 
 	//some tests
-	char add[] = "add\n12-13-12\n12:12-12:12\nsome notes\n\n";
+	/*char add[] = "add\n12-13-12\n12:12-12:12\nsome notes\n\n";
 	char del[] = "delete\n12-12-12\n12:12-12:12\n\n";
 	char save[] = "save\ncat \n";
 	printf("%s\n", generateReply(parseCommand(add, clientData)));
 	printf("%s\n", generateReply(parseCommand(del, clientData)));
-	printf("%s\n", generateReply(parseCommand(save, clientData)));
+	printf("%s\n", generateReply(parseCommand(save, clientData)));*/
 
-	//save, release memory, and exit
-	if(clientData->added > 0){
-		//int i = saveCalendarData(clientData);
-		freeCalendar(clientData);
-	}
+	//release memory, and exit
+	freeCalendar(clientData);
 
 	return 1;
 }
@@ -121,7 +118,7 @@ void openConnection(char *port, calendar *caldata){
 		close(sockfd);
 		exit(1);
 	}
-
+	
 	//accecpt connections to the server
 	addr_size = sizeof client_addr;
 	if((aptfd = accept(sockfd, (struct sockaddr *)&client_addr, &addr_size)) == -1){
@@ -131,10 +128,27 @@ void openConnection(char *port, calendar *caldata){
 	}
 
 	//interact with client until disconnect signal
-	//max receive from client is 255 bytes, biggest reply is 23 + null terminator	
-	char request[255], reply[24]; 
-    //receive request from client (max 255 length of 255)
-	while(recv(sockfd, (void *)request, 255, 0) != 0){
+	while(1){
+		//max receive from client is 255 bytes, biggest reply is 23 + null terminator	
+		char request[255], reply[24];
+		memset(&request, 0, sizeof request);
+		int bytesSR = 0; //bytes sent/received in a request
+		int ttlSR = 0; //total bytes sent/received with client
+		char *reqPt = request; //pointer to request buffer
+		int buffSize = 255; //tracks max receive for the next receive
+		//receive request from client (max 255 length of 255)
+		while(strstr(request, "\n\n") == NULL && ttlSR < 255){
+			if((bytesSR = recv(aptfd, reqPt, buffSize, 0)) <= 0){
+				fprintf(stderr, "No longer receiving from client. Server shutting down!\n");
+				close(sockfd); //close open sockets
+				close(aptfd);
+				freeaddrinfo(servinfo); // free the linked-list
+				return;
+			}
+			ttlSR += bytesSR; //track bytes received to prevent overflow
+			buffSize -= bytesSR;	//decrease max bytes in the next receive
+			reqPt += bytesSR; //move pointer forward to prevent overwrite
+		}
 		//use the request to execute commands.
 		switch(parseCommand(request, caldata)){
 			case 1:
@@ -160,19 +174,31 @@ void openConnection(char *port, calendar *caldata){
 				break;
 			default:
 				fprintf(stderr, "fatal error in parse\n");
-				close(aptfd);
+				close(aptfd); //close open sockets
 				close(sockfd);
-				exit(1);
+				freeaddrinfo(servinfo); // free the linked-list
+				return;
 		}
-
+		printf("Sending reply: %s", reply);
 		//send reply to client
-        int len = strlen(reply); //get length fo reply
-        while(len > 0 && send(sockfd, reply, len, 0) == 0);
+	 	int len = strlen(reply); //get length fo reply
+		char *repPT = reply; //pointer to reply
+		ttlSR = 0;
+		while(ttlSR < len){
+			if((bytesSR = send(aptfd, repPT, len, 0)) < 0){
+				fprintf(stderr, "Fatal send error! Server terminating.\n");
+				close(sockfd); //close open sockets
+				close(aptfd);
+				freeaddrinfo(servinfo); // free the linked-list
+				return;
+			}
+			ttlSR += bytesSR; //track total bytes sent
+			repPT += bytesSR; //move forward pointer to avoid repeat sent bytes
+		}
 	}
 	
 	close(aptfd);
 	close(sockfd);
-
 	freeaddrinfo(servinfo); // free the linked-list
 }
 
@@ -206,6 +232,7 @@ calendar* loadCalendarData(char * filename){
 	FILE *calFile = fopen(calData->filename, "r");
 	//If no file is found, then there has not been 
 	if(calFile == NULL){
+		printf("No calendar file found.  New calendar created.\n");
 		return calData;
 	}
 	char getChar = 0;
@@ -234,7 +261,7 @@ calendar* loadCalendarData(char * filename){
 		}
 	}
 	if(calData->added > 0)
-		printf("\nCalendar loaded into memory.\n\n");
+		printf("\nCalendar loaded into memory.\n");
 	else 
 		printf("No appointments loaded.\n\n");
 	fclose(calFile);
@@ -275,6 +302,7 @@ int parseCommand(char *cmdLine, calendar *cal){
 	//printf("::%s::%s::\n",cmd, app);
 	//for add command, attempt to add appointment
 	if(strcmp(cmd, "add") == 0){
+		printf("Received add command from client.\n");
 		appointment *p = makeAppointment(convertToServer(app));
 		if(p != NULL)
 			return addAppointment(p, cal);
@@ -282,6 +310,7 @@ int parseCommand(char *cmdLine, calendar *cal){
 	}
 	//for delete command, delete the appointment
 	else if(strcmp(cmd, "delete") == 0){
+		printf("Received delete command from client.\n");
 		//make an appointment to compare with calendar records
 		appointment *newApp = makeAppointment(convertToServer(app)); 
 		int result = removeAppointment(newApp, cal);
@@ -289,8 +318,10 @@ int parseCommand(char *cmdLine, calendar *cal){
 		return result; //return result of deletion attempt
 	}
 	else if(strcmp(cmd, "save") == 0){
+		printf("Received save command from client.\n");
 		return saveCalendarData(cal);
 	}
+	printf("Received unrecognized command from client.\n");
 	return 1; //command not recognized
 }
 

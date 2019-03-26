@@ -32,7 +32,7 @@
 
 int main(int argc, char **argv){
     //Display use instructions for the client.
-    printf("/tWelcome to the Calander Client 4000 Extreme!\n"
+    printf("\tWelcome to the Calander Client 4000 Extreme!\n"
     "Appointments can be added with the \"add\" request.\n"
     "Appointments can be deleted with the \"delete\" request.\n"
     "To save appointments on the server use the \"save\" request.\n"
@@ -42,8 +42,8 @@ int main(int argc, char **argv){
     "Press the enter key an additional time after the last line of data.\n"
     "Type \"exit\" to leave program.\n\n");
 
-    //connectToCalServ();
-    char * request;
+    connectToCalServ();
+    /*char * request;
     while((request = generateRequest()) != NULL){
         printf(":%s", request);
         int i = 0, count = 0;
@@ -53,7 +53,7 @@ int main(int argc, char **argv){
         }
         printf(":%d:\n", count);
         free(request);
-    }
+    }*/
 
     return 1;
 }
@@ -210,8 +210,9 @@ char * generateRequest(){
         free(request);
         return generateRequest();
     }
-
-    request[i] = 0; //null terminate string
+    
+    request[i] = '\n';
+    request[i+1] = 0; //null terminate string
     return request;
 }
 
@@ -228,7 +229,7 @@ void connectToCalServ(){
     memset(&hints, 0, sizeof hints); // ensure the struct is empty
     hints.ai_family = AF_UNSPEC;     // works with either IPv4 or IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP stream socket
-    
+
     // point servinfo to a linked list of 1 or more struct addrinfos with
     // the above specified specs and port 3721
     status = getaddrinfo(SERVER_IP, SERVER_PORT, &hints, &servinfo);
@@ -255,35 +256,49 @@ void connectToCalServ(){
 
     //Send messages from the user to the server until user enters exit
     char * request = NULL;
-    void * buffer = malloc(255);
+
     int len = 0; //length of request
     while((request = generateRequest()) != NULL){
-        //if the request was save-exit
-        /*if(request != NULL && strcmp(request, "save-exit") == 0){
-            strcpy(request, "save\n\n");
-            //send save request and then exit
-            if(send(sockfd, request, len, 0) > 0){
-                //receive reply from server (max 255 length of 255)
-                recv(sockfd, buffer, 255, 0);
-                printf((char *)buffer); //print out reply from the servers
-            }
-            free(request);
-            break;
-        }*/
-
+	char * buffer = malloc(255);
         //send request to server
         len = strlen(request); //get length fo request
-        if(send(sockfd, request, len, 0) > 0){
-            //receive reply from server (max 255 length of 255)
-            recv(sockfd, buffer, 255, 0);
-            printf((char *)buffer); //print out reply from the servers
-        }
-        else
-            fprintf(stderr, "Send error. Please reenter request.\n");
+	int sent = 0; //bytes sent
+	int bytesSent = 0; //bytes sent on each send
+	char * reqPt = request; //pointer to place in request
+	while(sent < len){
+		//Attempt a send to the server
+		//on failure to send, free memory, and go back to request
+		bytesSent = send(sockfd, reqPt, len, 0);
+		if(bytesSent < 0){
+			fprintf(stderr, "Fatal send error! Please reenter request.\n");
+			break;
+		}
+		sent += bytesSent; //adjust sent bytes total 
+		reqPt += bytesSent; //move forward pointer so repeat data is not sent
+	}
+	//receive reply from server (max 255 length of 255)
+	int bytesRecv = 0; //bytes received in a recv
+	int ttlRecv = 0; //total bytes received from server
+	int maxRecv = 255; //tracks the room left in the buffer to receive on the next recv
+	char * buffPt = buffer; //pointer to the receive buffer
+        while(sent == len && strstr(buffer, "\n") == NULL && ttlRecv < 255){
+		if((bytesRecv = recv(sockfd, (void *)buffPt, maxRecv, 0)) < 0){
+			fprintf(stderr, "Fatal recv error! Please reenter request.\n");
+			ttlRecv = 0;
+			break;
+		}
+		ttlRecv += bytesRecv; //count number of bytes received
+		maxRecv = bytesRecv; //decrease max for next receive
+		buffPt += bytesRecv; //move buffer pointer forward so data not overwritten
+	}
+	buffer[ttlRecv] = 0;
+	//report reply if one was received.
+        if(sent == len && ttlRecv > 0)
+            printf("Server reply: %s", buffer); //print out reply from the servers
         free(request);
+	free(buffer);
     }
     close(sockfd); //close the socket
-    free(buffer);
 
     printf("Goodbye!\n");
 
