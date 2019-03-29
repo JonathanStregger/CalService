@@ -502,43 +502,63 @@ int equalsApp(appointment *app1, appointment *app2){
  *          then a the failure code is sent.
  */
 char * getRequest(char *request, calendar *cal){
-  char prev, next;
   char app[255];
   char *reply = malloc(255);
   if(reply == NULL){
     fprintf(stderr, "failure in malloc.\n");
     exit(1);
   }
-  int i = 0;
-  //get past the 'get'
-  for(; request[i] != '\n'; i++);
   //get the app from the request
-  for(; i < 254 && prev != '\n' && next != '\n'; i++){
-    app[i] = request[i];
-    prev = app[i];
-    next = request[i+1];
+  int i = 4, j = 0;
+  for(; i < 254 && request[i] != '\n'; i++, j++)
+    app[j] = request[i];
+  if(request[i] != 0){
+    for(; i < 254 && (request[i] != '\n' || request[i+1] != '\n'); i++, j++){
+      app[j] = request[i];
+    }
+    app[j] = '\n';
+    app[j+1] = 0;
   }
-  app[i] = '\n';
-  app[i+1] = 0;
+  else
+    app[j] = 0;
 
   //if the format was get number, get that app from the calendar
   if(strlen(app) < 8){
     int appNum = atoi(app);
     if(appNum == 0)
       strcpy(reply, "501 wrong format for get\n");
-    else if(appNum > cal->added)
+    else if(appNum >= cal->added)
       strcpy(reply, "502 appointment not found\n");
     else{
       strcpy(reply, "500 appointment found\n");
-      char *appString = appointmentToString(cal->appList[appNum]);
+      char *appString = appointmentToString(cal->appList[appNum - 1]);
       appString = convertToClient(appString);
       int j = 22;
-      for(i = 0; j < 255 && appString[i-1] != 0; i++, j++)
+      for(i = 0; j < 255 && appString[i] != 0; i++, j++)
         reply[j] = appString[i];
+      reply[j] = 0;
       return reply;
     }
   }
+  //if only a date, should be yy-mm-dd\n\n
+  else if(strlen(app) == 9){
+    app[8] = 0;
+    printf("%s\n",app);
+    for(i = 0; i < cal->added; i++){
+      if(strcmp(cal->appList[i]->date, app) == 0){
+        char * apptStr = appointmentToString(cal->appList[i]);
+        apptStr = convertToClient(apptStr);
+        int j = 22, k = 0;
+        strcpy(reply, "500 appointment found\n");
+        for(k = 0; j < 255 && apptStr[k] != 0; k++, j++)
+          reply[j] = apptStr[k];
+        reply[j] = 0;
+        return reply;
+      }
+    }
+  }
   else{
+
     //get an appointment from the app
     strcpy(app, convertToServer(app));
     appointment * searchApp = makeAppointment(app);
@@ -550,10 +570,12 @@ char * getRequest(char *request, calendar *cal){
       for(i = 0; i < cal->added; i++){
         if(equalsApp(cal->appList[i], searchApp) == 1){
           char * apptStr = appointmentToString(cal->appList[i]);
-          int i = 0, j = 22;
+          apptStr = convertToClient(apptStr);
+          int j = 22, k = 0;
           strcpy(reply, "500 appointment found\n");
-          for(; j < 255 && apptStr[i-1] != 0; i++, j++)
-            reply[j] = apptStr[i];
+          for(k = 0; j < 255 && apptStr[k] != 0; k++, j++)
+            reply[j] = apptStr[k];
+          reply[j] = 0;
           return reply;
         }
       }
@@ -953,7 +975,6 @@ char * convertToClient(char *app){
   }
   else if(i < 253){
     app[i] = '\n';
-    app[i+1] = '\n';
     app[i+2] = 0;
   }
   else
