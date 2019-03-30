@@ -37,7 +37,7 @@ int main(int argc, char **argv){
   getOptions(argc, argv, &portNumber, &filename);
   
   //if no port chosen or port out of range, default to port 12000
-  if(portNumber < 1 || portNumber > 65535)
+  if(portNumber < 1025 || portNumber > 65535)
     portNumber = 12000;
   
   //Load calendar data from file
@@ -118,6 +118,7 @@ void openConnection(char *port, calendar *caldata){
 
   //interact with client until disconnect signal
   while(1){
+    fprintf(stderr, "Listening for client:\n");
     //max receive from client is 255 bytes, max return is 255 for a get
     char request[255];
     char *reply = malloc(255);
@@ -260,7 +261,7 @@ calendar* loadCalendarData(char * filename){
     }
   }
   if(calData->added > 0)
-    printf("\nCalendar loaded into memory.\n");
+    printf("\nCalendar loaded into memory.\n\n");
   else 
     printf("No appointments loaded.\n\n");
   fclose(calFile);
@@ -451,21 +452,33 @@ int removeAppointment(appointment *app, calendar *cal){
   if(app == NULL || cal == NULL)
     return 5;
 
+  int removed = 0;
+
   //check through list of appointments for appointment to be removed
   //and remove it when found.
   int i = 0;
   for(; i < cal->added; i++){
-    if(equalsApp(app, cal->appList[i]) == 1){
+    if(equalsApp(app, cal->appList[i]) == 1 && removed == 0){
       free(cal->appList[i]);
       cal->appList[i] = NULL;
       cal->added--;
-      printf("Appointment removed.\n");
-      return 4;
+      removed = 1;
     }
+    //if an app was removed, shift all apps down one
+    if(removed == 1 && cal->appList[i+1] != NULL ){
+      cal->appList[i] = cal->appList[i+1];
+    }
+
   }
-  
-  printf("Appointment not found.\n"); //app not found in list
-  return 5;
+
+  //app not found in list
+  if(removed == 0){
+    printf("Appointment not found.\n"); 
+    return 5;
+  }
+
+  printf("Appointment removed.\n");
+  return 4;
 }
 
 /*
@@ -527,7 +540,7 @@ char * getRequest(char *request, calendar *cal){
     int appNum = atoi(app);
     if(appNum == 0)
       strcpy(reply, "501 wrong format for get\n");
-    else if(appNum >= cal->added)
+    else if(appNum > cal->added)
       strcpy(reply, "502 appointment not found\n");
     else{
       strcpy(reply, "500 appointment found\n");
@@ -537,8 +550,8 @@ char * getRequest(char *request, calendar *cal){
       for(i = 0; j < 255 && appString[i] != 0; i++, j++)
         reply[j] = appString[i];
       reply[j] = 0;
-      return reply;
     }
+    return reply;
   }
   //if only a date, should be yy-mm-dd\n\n
   else if(strlen(app) == 9){
@@ -558,7 +571,6 @@ char * getRequest(char *request, calendar *cal){
     }
   }
   else{
-
     //get an appointment from the app
     strcpy(app, convertToServer(app));
     appointment * searchApp = makeAppointment(app);
@@ -888,7 +900,7 @@ void getOptions(int argc, char **argv, int *portNumber, char **filename){
         prevOpt = 0; //option handled, reset option
       }
       else if(prevOpt == 'd'){
-        printf("\n\tCalendar Server 4000 Extreme!!!\n\n"
+        printf("\nCalendar Server\n\n"
 "Manages a calender server of appointments for a client.\n"
 "Clients may add, modify, or delete appointments. Success or failure of\n"
 "client actions on server data will be reported to the client upon\n"
@@ -898,11 +910,11 @@ void getOptions(int argc, char **argv, int *portNumber, char **filename){
 "Default port is 12000. Default file name is calfile.\n"
 "Simple help is provied with the -h option\n"
 "Format of commands received from client are:\n"
-"Add Command\tDelete Command\tSave Command\n"
-"add\t\tdelete\t\tsave\n"
-"date\t\tdate\n"
-"time\t\ttime\n"
-"note\n\n"
+"Add Command\tDelete Command\tGet Command\tSave Command\n"
+"add\t\tdelete\t\tget\t\tsave\n"
+"date\t\tdate\t\tdate or index #\n"
+"time\t\ttime\t\ttime (optional)\n"
+"note (optional)\n\n"
 "Press any key to continue...");
         getchar();
         printf("\n\n");

@@ -29,20 +29,25 @@
 
 //The port and IP to connect to.
 //default to localhost:12000 for tests on student server
-#define SERVER_IP "0.0.0.0"     
+#define SERVER_IP "0.0.0.0"
 #define SERVER_PORT "12000"
 
 int main(int argc, char **argv){
   //Display use instructions for the client.
-  printf("Welcome to the Calander Client 4000 Extreme: Ron Edition\n\n"
-  "Appointments can be added with the \"add\" request.\n"
-  "Appointments can be deleted with the \"delete\" request.\n"
-  "To save appointments on the server use the \"save\" request.\n"
-  "Requests must be entered in the following form:\n"
-  "<request>\nyy-mm-dd\nhh:mm-hh:mm\n"
-  "Any note for the appointment on add, ignored for delete request.\n\n"
-  "Press the enter key an additional time after the last line of data.\n"
-  "Type \"exit\" to leave program.\n\n");
+  printf("\nWelcome to the Calander Client\n\n"
+    "Server port and address may be specified with the options:\n"
+    "[-p portnumber] [-a address]\n"
+    "Default port is 12000 and address 0.0.0.0\n\n"
+    "Requests must be entered in the following form:\n"
+    "Add Command\tDelete Command\tGet Command\tSave Command\n"
+    "add\t\tdelete\t\tget\t\tsave\n"
+    "date\t\tdate\t\tdate or index #\n"
+    "time\t\ttime\t\ttime (optional)\n"
+    "note (optional)\n\n"
+    "Press the enter key an additional time after the last line of data.\n"
+    "Type \"help\" to review format of requests\n"
+    "Type \"reset\" to restart a request.\n"
+    "Type \"exit\" to leave program.\n\n");
 
   char * port = SERVER_PORT;
   char * servIP = SERVER_IP;
@@ -81,7 +86,7 @@ char * generateRequest(){
       break;
     }
     //Test the line of input if a newline detected
-    if(getChar == '\n' && requestType < 3){
+    if(getChar == '\n'){// && requestType < 3){
       //get the current line of data
       char line[255];
       memset(&line, 0, 255);
@@ -102,22 +107,31 @@ char * generateRequest(){
       //lazy to type more than help
       else if(requestLine != 3 && strcmp(line, "help") == 0){
         printf("\nAvailable commands:\n"
-        "add          delete          save\n"
-        "yy-mm-dd     yy-mm-dd\n"
-        "hh:mm-hh:mm  hh:mm-hh:mm\n"
-        "<any note>\n\n"
-        "Press enter a second time after last line to send request.\n"
-        "'help' to show this message.\n"
-        "'exit' to closes the client.\n"
-        "'reset' to restart request.\n\n"
-        );
-        request[0] = 0;
-        return request;
+  "Requests must be entered in the following form:\n"
+  "Add Command\tDelete Command\tGet Command\tSave Command\n"
+  "add\t\tdelete\t\tget\t\tsave\n"
+  "date\t\tdate\t\tdate or index #\n"
+  "time\t\ttime\t\ttime (optional)\n"
+  "note (optional)\n\n"
+  "Press the enter key an additional time after the last line of data.\n"
+  "Type \"help\" to review format of requests\n"
+  "Type \"reset\" to restart a request.\n"
+  "Type \"exit\" to leave program.\n\n");
+        free(request);
+        return generateRequest();
       }
       //reset the request unless it is for the note
       else if(requestLine != 3 && strcmp(line, "reset") == 0){
-        request[0] = 0;
-        return request;
+        free(request);
+        printf("\n");
+        return generateRequest();
+      }
+      
+      //skip checks for save
+      if(requestType == 3 || (requestType == 4 && strnlen(line,12) < 8 && (requestLine == 1 || requestLine == 2))){
+        requestLine++;
+        prevChar = getChar;
+        continue;
       }
       
       //requestLine++;
@@ -297,11 +311,11 @@ if((connErr = connect(sockfd, servinfo->ai_addr,
   int len = 0; //length of request
   while((request = generateRequest()) != NULL){
     //check for reset
-    if(request[0] == 0){
+    /*if(request[0] == 0){
       printf("\n");
       free(request);
       continue;
-    }
+    }*/
     
     char buffer[255];
     memset(&buffer, 0, 255);
